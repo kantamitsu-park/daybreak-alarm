@@ -32,6 +32,9 @@ export function missionView(row: MissionRow): MissionSession {
     challenge: row.challenge,
     challengeFingers: row.challenge_fingers,
     status: row.status,
+    ...(row.status === "snoozed" && row.snooze_until !== null
+      ? { snoozeUntil: row.snooze_until }
+      : {}),
   };
 }
 async function owned(

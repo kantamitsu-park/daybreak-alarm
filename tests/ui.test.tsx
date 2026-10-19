@@ -34,6 +34,7 @@ vi.mock("../src/lib/api", async (importOriginal) => {
         "alarms",
         "history",
         "active",
+        "status",
         "snoozes",
         "saveAlarm",
         "removeAlarm",
@@ -122,6 +123,7 @@ beforeEach(() => {
   vi.mocked(api.alarms).mockResolvedValue(DEFAULT_ALARMS);
   vi.mocked(api.history).mockResolvedValue([]);
   vi.mocked(api.active).mockResolvedValue(null);
+  vi.mocked(api.status).mockImplementation(async () => session());
   vi.mocked(api.snoozes).mockResolvedValue([]);
   vi.mocked(api.abort).mockResolvedValue({});
   vi.mocked(api.start).mockImplementation(async () => session());
@@ -400,6 +402,62 @@ describe("mission-gated flick controls", () => {
 });
 
 describe("mission screen failure handling", () => {
+  it("retries an initial start failure without demanding a nonexistent prior attempt", async () => {
+    const user = userEvent.setup({
+      delay: null,
+      pointerEventsCheck: 0,
+      skipHover: true,
+    });
+    vi.mocked(api.start).mockRejectedValueOnce(new Error("通信できません"));
+    vi.mocked(startMissionCapture).mockResolvedValue({
+      startedAt: Date.now(),
+      mimeType: "video/webm",
+      stop: vi.fn(),
+      cancel: vi.fn(),
+    });
+    mission();
+    await act(async () => {});
+    await user.click(screen.getByRole("button", { name: "もう一度撮影" }));
+    expect(api.start).toHaveBeenNthCalledWith(2, DEFAULT_ALARMS[0].id, false);
+    expect(api.abort).not.toHaveBeenCalled();
+    expect(startMissionCapture).toHaveBeenCalledOnce();
+  });
+
+  it.each(["passed", "verifying", "recording"] as const)(
+    "recovers an existing %s attempt after losing the initial response without starting another recording",
+    async (status) => {
+      const user = userEvent.setup({
+        delay: null,
+        pointerEventsCheck: 0,
+        skipHover: true,
+      });
+      vi.mocked(api.start)
+        .mockRejectedValueOnce(new Error("通信できません"))
+        .mockResolvedValueOnce({ ...session(), status });
+      mission();
+      await act(async () => {});
+      await user.click(screen.getByRole("button", { name: "もう一度撮影" }));
+      expect(api.start).toHaveBeenNthCalledWith(2, DEFAULT_ALARMS[0].id, false);
+      expect(api.abort).not.toHaveBeenCalled();
+      expect(startMissionCapture).not.toHaveBeenCalled();
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "フリック操作",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(status !== "passed");
+      if (status === "verifying")
+        expect(screen.getByRole("status").textContent).toContain(
+          "判定しています",
+        );
+      if (status === "recording")
+        expect(
+          screen.getByRole("button", { name: "もう一度撮影" }),
+        ).toBeTruthy();
+    },
+  );
+
   it("starts the server deadline immediately without waiting for camera permission", async () => {
     vi.mocked(api.start).mockResolvedValue({
       ...session(),
@@ -527,6 +585,7 @@ describe("mission screen failure handling", () => {
     vi.mocked(api.resolve).mockRejectedValue(
       new Error("達成状態を確認できません。もう一度お試しください。"),
     );
+    vi.mocked(api.status).mockRejectedValue(new Error("通信できません"));
     const props = mission({
       initialSession: { ...session(), status: "passed" },
     });
@@ -536,7 +595,93 @@ describe("mission screen failure handling", () => {
       "達成状態を確認できません",
     );
     expect(props.onResolved).not.toHaveBeenCalled();
+    expect(api.status).toHaveBeenCalledExactlyOnceWith("session-1");
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "フリック操作",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+    expect(screen.queryByRole("button", { name: "もう一度撮影" })).toBeNull();
   });
+
+  it.each(["expired", "failed"] as const)(
+    "locks a rejected grant and permits an explicit fresh attempt when the server reports %s",
+    async (status) => {
+      const user = userEvent.setup({
+        delay: null,
+        pointerEventsCheck: 0,
+        skipHover: true,
+      });
+      const verified = { ...session(), status: "passed" as const };
+      vi.mocked(api.resolve).mockRejectedValue(
+        new Error("停止操作の有効期限が切れました。再撮影してください。"),
+      );
+      vi.mocked(api.status).mockResolvedValue({
+        ...verified,
+        status,
+        reason: "判定の有効期限が切れました。",
+      });
+      vi.mocked(startMissionCapture).mockResolvedValue({
+        startedAt: Date.now(),
+        mimeType: "video/webm",
+        stop: vi.fn(),
+        cancel: vi.fn(),
+      });
+      const props = mission({ initialSession: verified });
+      screen.getByRole("button", { name: "フリック操作" }).focus();
+      await user.keyboard("{ArrowRight}");
+      expect(api.status).toHaveBeenCalledExactlyOnceWith(verified.id);
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "フリック操作",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(true);
+      expect(props.onResolved).not.toHaveBeenCalled();
+      expect(api.start).not.toHaveBeenCalled();
+      expect(startMissionCapture).not.toHaveBeenCalled();
+      await user.click(screen.getByRole("button", { name: "もう一度撮影" }));
+      expect(api.abort).toHaveBeenCalledExactlyOnceWith(verified.id);
+      expect(api.start).toHaveBeenCalledExactlyOnceWith(verified.alarmId, true);
+      expect(startMissionCapture).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(["stopped", "snoozed"] as const)(
+    "recovers a committed %s action from the server when the resolution response is lost",
+    async (status) => {
+      const user = userEvent.setup({
+        delay: null,
+        pointerEventsCheck: 0,
+        skipHover: true,
+      });
+      const verified = { ...session(), status: "passed" as const };
+      const snoozeUntil = Date.now() + 300_000;
+      vi.mocked(api.resolve).mockRejectedValue(new Error("通信できません"));
+      vi.mocked(api.status).mockResolvedValue({
+        ...verified,
+        status,
+        ...(status === "snoozed" ? { snoozeUntil } : {}),
+      });
+      const props = mission({ initialSession: verified });
+      screen.getByRole("button", { name: "フリック操作" }).focus();
+      await user.keyboard(
+        status === "snoozed" ? "{ArrowLeft}" : "{ArrowRight}",
+      );
+      expect(api.status).toHaveBeenCalledExactlyOnceWith(verified.id);
+      if (status === "snoozed")
+        expect(props.onResolved).toHaveBeenCalledExactlyOnceWith(
+          "snooze",
+          snoozeUntil,
+        );
+      else expect(props.onResolved).toHaveBeenCalledExactlyOnceWith("stop");
+      expect(api.start).not.toHaveBeenCalled();
+      expect(startMissionCapture).not.toHaveBeenCalled();
+    },
+  );
 
   it.each(["passed", "failed"] as const)(
     "unlocks only after an actual %s verification response",

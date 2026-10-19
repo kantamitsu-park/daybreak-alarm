@@ -227,6 +227,7 @@ export default function MissionScreen({
     try {
       let active = session;
       if (!active || phase === "failed") {
+        const retry = !!active && phase === "failed";
         if (active && !preview) await api.abort(active.id);
         active = preview
           ? {
@@ -239,9 +240,20 @@ export default function MissionScreen({
                 "最初に指を2本見せて、最後に手のひらを見せてください。",
               status: "pending",
             }
-          : await api.start(alarm.id, phase === "failed");
+          : await api.start(alarm.id, retry);
         setSession(active);
         setDeadline(active.deadline);
+        // A previous request may have succeeded before its response was lost.
+        // Recover that session without appending new video to an existing attempt.
+        if (active.status !== "pending") {
+          if (active.status === "passed") setPhase("passed");
+          else if (active.status === "verifying") setPhase("verifying");
+          else {
+            setPhase("failed");
+            setError("撮影が中断されました。もう一度撮影してください。");
+          }
+          return;
+        }
         setPhase("ready");
       }
       const id = active.id;
@@ -327,6 +339,30 @@ export default function MissionScreen({
       onResolved(action, result.snoozeUntil);
     } catch (e) {
       setError((e as Error).message);
+      try {
+        const current = await api.status(session.id);
+        if (!alive.current) return;
+        if (current.status === "stopped") {
+          onResolved("stop");
+        } else if (
+          current.status === "snoozed" &&
+          Number.isFinite(current.snoozeUntil)
+        ) {
+          onResolved("snooze", current.snoozeUntil);
+        } else if (
+          current.status === "expired" ||
+          current.status === "failed"
+        ) {
+          setSession(current);
+          setPhase("failed");
+          setError(
+            current.reason ||
+              "停止操作の有効期限が切れました。もう一度撮影してください。",
+          );
+        }
+      } catch {
+        // A failed status read does not invalidate a confirmed success grant.
+      }
     } finally {
       setBusy(false);
     }

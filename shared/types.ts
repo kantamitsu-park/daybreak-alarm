@@ -23,6 +23,7 @@ export interface MissionSession {
   deadline: number;
   challenge: string;
   challengeFingers: number;
+  snoozeUntil?: number;
   status:
     | "pending"
     | "recording"

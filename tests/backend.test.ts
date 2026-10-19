@@ -603,6 +603,9 @@ describe("mission enforcement", () => {
   });
   it("only permits snooze after success and returns server-computed time", async () => {
     const m = await recordingFixture();
+    expect(
+      await (await request(`/api/missions/${m.id}`)).json(),
+    ).not.toHaveProperty("snoozeUntil");
     await request(`/api/missions/${m.id}/verify`, "POST");
     const response = (await (
       await request(`/api/missions/${m.id}/resolve`, "POST", {
@@ -611,6 +614,12 @@ describe("mission enforcement", () => {
     ).json()) as { status: string; snoozeUntil: number };
     expect(response.status).toBe("snoozed");
     expect(response.snoozeUntil - Date.now()).toBeGreaterThan(299_000);
+    expect(await (await request(`/api/missions/${m.id}`)).json()).toMatchObject(
+      {
+        status: "snoozed",
+        snoozeUntil: response.snoozeUntil,
+      },
+    );
     expect(await (await request("/api/history")).json()).toEqual([
       expect.objectContaining({ id: m.id, status: "snoozed" }),
     ]);

@@ -87,7 +87,7 @@ npm run deploy
 
 1. Google Cloud Consoleでアプリ用のプロジェクトとOAuth同意画面を設定します。テスト公開の場合は、使用するGoogleアカウントをテストユーザーへ追加します。
 2. OAuthクライアントを「ウェブアプリケーション」で作成します。
-3. 承認済みリダイレクトURIへ `daybreak-alarm.kantapark-work.workers.dev/api/auth/google/callback` を登録します。アプリが要求するスコープは `openid email profile` です。
+3. 承認済みリダイレクトURIへ `https://daybreak-alarm.kantapark-work.workers.dev/api/auth/google/callback` を登録します。アプリが要求するスコープは `openid email profile` です。
 4. クライアントID・シークレットをWorkerのSecretsへ登録します。コマンドの対話入力で値を渡します。
 
 ```sh
