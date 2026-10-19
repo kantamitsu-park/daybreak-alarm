@@ -1,0 +1,14 @@
+PRAGMA foreign_keys = ON;
+CREATE TABLE users (id TEXT PRIMARY KEY, google_sub TEXT NOT NULL UNIQUE, name TEXT NOT NULL, email TEXT NOT NULL, picture TEXT, created_at INTEGER NOT NULL);
+CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL);
+CREATE INDEX sessions_expiry ON sessions(expires_at);
+CREATE TABLE oauth_flows (state_hash TEXT PRIMARY KEY, verifier TEXT NOT NULL, nonce TEXT NOT NULL, expires_at INTEGER NOT NULL);
+CREATE TABLE alarms (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, time TEXT NOT NULL, label TEXT NOT NULL, days TEXT NOT NULL, enabled INTEGER NOT NULL CHECK(enabled IN(0,1)), mission TEXT NOT NULL CHECK(mission IN('water','coffee','pushups')), duration INTEGER NOT NULL CHECK(duration BETWEEN 15 AND 600), repetitions INTEGER NOT NULL CHECK(repetitions BETWEEN 1 AND 20), snooze_minutes INTEGER NOT NULL CHECK(snooze_minutes BETWEEN 1 AND 30));
+CREATE INDEX alarms_user ON alarms(user_id);
+CREATE TABLE missions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, alarm_id TEXT NOT NULL, mission TEXT NOT NULL, repetitions INTEGER NOT NULL, created_at INTEGER NOT NULL, deadline INTEGER NOT NULL, challenge_fingers INTEGER NOT NULL, challenge TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN('pending','recording','verifying','passed','failed','expired','stopped','snoozed')), next_sequence INTEGER NOT NULL DEFAULT 0, first_frame_at INTEGER, last_frame_at INTEGER, video_key TEXT, video_duration INTEGER, video_hash TEXT, resolved_at INTEGER, snooze_minutes INTEGER NOT NULL, verdict TEXT);
+CREATE INDEX missions_user ON missions(user_id, created_at DESC);
+CREATE INDEX missions_expiry ON missions(deadline);
+CREATE TABLE frames (mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE, sequence INTEGER NOT NULL, hash TEXT NOT NULL UNIQUE, received_at INTEGER NOT NULL, object_key TEXT NOT NULL, PRIMARY KEY (mission_id, sequence));
+CREATE TABLE used_videos (hash TEXT PRIMARY KEY, created_at INTEGER NOT NULL);
+CREATE TABLE rate_limits (key TEXT NOT NULL, window_start INTEGER NOT NULL, count INTEGER NOT NULL, PRIMARY KEY(key, window_start));
+CREATE UNIQUE INDEX missions_one_active_user ON missions(user_id) WHERE status IN ('pending','recording','verifying','passed');

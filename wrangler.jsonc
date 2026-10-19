@@ -1,0 +1,26 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "daybreak-alarm",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"],
+  },
+  "vars": { "APP_ORIGIN": "https://daybreak-alarm.kantapark-work.workers.dev" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "daybreak",
+      "database_id": "a829d397-7f0c-4832-adf6-4ea80c2f6449",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "ai": { "binding": "AI" },
+  "media": { "binding": "MEDIA" },
+  "triggers": { "crons": ["*/15 * * * *"] },
+  "observability": { "enabled": true },
+}

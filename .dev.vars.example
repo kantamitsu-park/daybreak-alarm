@@ -1,0 +1,7 @@
+# Local Vite frontend origin. Do not mix localhost and 127.0.0.1.
+APP_ORIGIN="http://127.0.0.1:5173"
+
+# Leave empty to use local editing and preview without Google login.
+# Copy this file to .dev.vars, then fill real values only in that ignored file.
+GOOGLE_CLIENT_ID=""
+GOOGLE_CLIENT_SECRET=""
